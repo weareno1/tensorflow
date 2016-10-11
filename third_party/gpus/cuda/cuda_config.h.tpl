@@ -21,4 +21,6 @@ limitations under the License.
 #define TF_CUDA_VERSION "%{cuda_version}"
 #define TF_CUDNN_VERSION "%{cudnn_version}"
 
+#define TENSORFLOW_PATH "%{tensorflow_path}"
+
 #endif  // CUDA_CUDA_CONFIG_H_

@@ -16,6 +16,7 @@
     `3.5,5.2`.
 """
 
+_TENSORFLOW_PATH = "TENSORFLOW_PATH"
 _GCC_HOST_COMPILER_PATH = "GCC_HOST_COMPILER_PATH"
 _CUDA_TOOLKIT_PATH = "CUDA_TOOLKIT_PATH"
 _TF_CUDA_VERSION = "TF_CUDA_VERSION"
@@ -306,6 +307,7 @@ def _create_dummy_repository(repository_ctx):
   # tensorflow/stream_executor/dso_loader.cc.
   _tpl(repository_ctx, "cuda:cuda_config.h",
        {
+           "%{tensorflow_path}": repository_ctx.os.environ[_TENSORFLOW_PATH].strip(),
            "%{cuda_version}": _DEFAULT_CUDA_VERSION,
            "%{cudnn_version}": _DEFAULT_CUDNN_VERSION,
            "%{cuda_compute_capabilities}": ",".join([
@@ -397,6 +399,7 @@ def _create_cuda_repository(repository_ctx):
   # tensorflow/stream_executor/dso_loader.cc.
   _tpl(repository_ctx, "cuda:cuda_config.h",
        {
+           "%{tensorflow_path}": repository_ctx.os.environ[_TENSORFLOW_PATH].strip(),
            "%{cuda_version}": cuda_version,
            "%{cudnn_version}": cudnn_version,
            "%{cuda_compute_capabilities}": ",".join(

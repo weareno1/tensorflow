@@ -40,6 +40,7 @@ namespace internal {
 
 string GetCudaVersion() { return TF_CUDA_VERSION; }
 string GetCudnnVersion() { return TF_CUDNN_VERSION; }
+string GetTensorFlowPath() { return TENSORFLOW_PATH; }
 
 /* static */ port::Status DsoLoader::GetCublasDsoHandle(void** dso_handle) {
   return GetDsoHandle(FindDsoPath(tensorflow::internal::FormatLibraryFileName(
@@ -111,6 +112,7 @@ string GetCudnnVersion() { return TF_CUDNN_VERSION; }
 }
 
 /* static */ string DsoLoader::GetBinaryDirectory(bool strip_executable_name) {
+  return GetTensorFlowPath();
   char exe_path[PATH_MAX] = {0};
 #ifdef __APPLE__
   uint32_t buffer_size(0U);
@@ -176,6 +178,7 @@ static std::vector<string>* CreatePrimordialRpaths() {
   string binary_directory =
       GetBinaryDirectory(true /* = strip_executable_name */);
   mutex_lock lock{rpath_mutex_};
+  GetRpaths()->push_back(runfiles_relpath.ToString());
   for (const string& rpath : *GetRpaths()) {
     candidate =
         port::Join(StringPieces{binary_directory, rpath, library_name}, "/");
