@@ -1,4 +1,4 @@
-// Copyright 2016 Google Inc. All Rights Reserved.
+// Copyright 2016 The TensorFlow Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,35 +16,19 @@
 // RefreshShortlist.
 
 #include <algorithm>
+#include <numeric>
 
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
+#include "tensorflow/core/framework/shape_inference.h"
 #include "tensorflow/core/platform/logging.h"
 
 namespace tensorflow {
 
-REGISTER_OP("TopNInsert")
-    .Input("ids: int64")
-    .Input("scores: float32")
-    .Input("new_ids: int64")
-    .Input("new_scores: float32")
-    .Output("shortlist_ids: int64")
-    .Output("update_ids: int64")
-    .Output("update_scores: float32")
+using shape_inference::DimensionHandle;
+using shape_inference::InferenceContext;
+using shape_inference::ShapeHandle;
 
-    .Doc(R"doc(
-  Outputs update Tensors for adding new_ids and new_scores to the shortlist.
-
-  ids:= A 1-D int64 tensor containing the ids on the shortlist (except for
-    ids[0], which is the current size of the shortlist.
-  scores:= A 1-D float32 tensor containing the scores on the shortlist.
-  new_ids:= A 1-D int64 tensor containing the new ids to add to the shortlist.
-  shortlist_ids:= A 1-D int64 tensor containing the ids of the shortlist entries
-    to update.  Intended to be used with
-    tf.scatter_update(shortlist_scores, shortlist_ids, new_scores).
-  update_ids:= A 1-D int64 tensor containing ...
-  update_scores:= A 1-D float32 tensor containing ...
-)doc");
 
 class TopNInsert : public OpKernel {
  public:
@@ -190,24 +174,6 @@ class TopNInsert : public OpKernel {
     }
   }
 };
-
-REGISTER_OP("TopNRemove")
-    .Input("ids: int64")
-    .Input("remove_ids: int64")
-    .Output("shortlist_ids: int64")
-    .Output("new_length: int64")
-
-    .Doc(R"doc(
-  Remove ids from a shortlist.
-
-  ids:= A 1-D int64 tensor containing the ids on the shortlist (except for
-    ids[0], which is the current size of the shortlist.
-  remove_ids:= A 1-D int64 tensor containing the ids to remove.
-  shortlist_ids:= A 1-D int64 tensor containing the shortlist entries that
-    need to be removed.
-  new_length:= A length 1 1-D int64 tensor containing the new length of the
-    shortlist.
-)doc");
 
 class TopNRemove : public OpKernel {
  public:

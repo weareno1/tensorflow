@@ -116,7 +116,7 @@ def main(unused_argv=None):
   server.StartMultiplexerReloadingThread(multiplexer, path_to_run,
                                          FLAGS.reload_interval)
   try:
-    tb_server = server.BuildServer(multiplexer, FLAGS.host, FLAGS.port)
+    tb_server = server.BuildServer(multiplexer, FLAGS.host, FLAGS.port, logdir)
   except socket.error:
     if FLAGS.port == 0:
       msg = 'Unable to find any open ports.'
@@ -140,7 +140,11 @@ def main(unused_argv=None):
   print('Starting TensorBoard %s on port %d' % (tag, FLAGS.port))
 
   if FLAGS.host == "0.0.0.0":
-    print('(You can navigate to http://%s:%d)' % (socket.gethostbyname(socket.gethostname()), FLAGS.port))
+    try:
+      host = socket.gethostbyname(socket.gethostname())
+      print('(You can navigate to http://%s:%d)' % (host, FLAGS.port))
+    except socket.gaierror:
+      pass
   else:
     print('(You can navigate to http://%s:%d)' % (FLAGS.host, FLAGS.port))
 

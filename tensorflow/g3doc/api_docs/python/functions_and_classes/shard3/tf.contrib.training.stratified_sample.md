@@ -4,9 +4,7 @@ Stochastically creates batches based on per-class probabilities.
 
 This method discards examples. Internally, it creates one queue to amortize
 the cost of disk reads, and one queue to hold the properly-proportioned
-batch. See `stratified_sample_unknown_dist` for a function that performs
-stratified sampling with one queue per class and doesn't require knowing the
-class data-distribution ahead of time.
+batch.
 
 ##### Args:
 
@@ -52,7 +50,7 @@ class data-distribution ahead of time.
 
   # Get stratified batch according to per-class probabilities.
   target_probs = [...distribution you want...]
-  [data_batch], labels = tf.contrib.framework.sampling_ops.stratified_sample(
+  [data_batch], labels = tf.contrib.training.stratified_sample(
       [data], label, target_probs)
 
   # Run batch through network.

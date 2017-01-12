@@ -15,7 +15,7 @@ limitations under the License.
 
 #include "tensorflow/core/framework/function.h"
 
-#include <unordered_set>
+#include <unordered_map>
 #include <vector>
 
 #include "tensorflow/core/framework/function.pb_text.h"
@@ -169,7 +169,7 @@ typedef std::unordered_map<string, NameInfoItem> NameInfoIndex;
 Status AddArgName(NameInfoIndex* name_info, const string& arg,
                   const NameInfoItem& item) {
   if (!name_info->insert({arg, item}).second) {
-    return errors::InvalidArgument("Duplicated arg name.");
+    return errors::InvalidArgument("Duplicated arg name: ", arg);
   }
   return Status::OK();
 }
@@ -206,7 +206,7 @@ Status BuildInputArgIndex(const OpDef::ArgDef& arg_def,
 Status AddRetName(NameInfoIndex* name_info, const string& ret,
                   const NameInfoItem& item) {
   if (!name_info->insert({ret, item}).second) {
-    return errors::InvalidArgument("Duplicated ret name.");
+    return errors::InvalidArgument("Duplicated ret name: ", ret);
   }
   return Status::OK();
 }
@@ -356,8 +356,6 @@ Status InstantiateNode(const FunctionDef::Node& fnode,
     (*gnode->mutable_attr())[p.first] = p.second;
   }
 
-  AddDefaultsToNodeDef(*fnode_sig, gnode);
-
   return Status::OK();
 }
 
@@ -373,67 +371,51 @@ Status InstantiateNode(const NodeDef& fnode,
 
   // Input
   const int num_args = fnode_sig->input_arg_size();
-  bool is_type_list;
+  bool is_type_list;  // ignored
   DataTypeVector dtypes;
   int fnode_arg_index = 0;
   for (int i = 0; i < num_args; ++i) {
     TF_RETURN_IF_ERROR(
         ArgNumType(attrs, fnode_sig->input_arg(i), &is_type_list, &dtypes));
-    if (!is_type_list) {
+    // Consume inputs (indexed by fnode_arg_index) until we have
+    // matched each element of dtypes (indexed by j).
+    for (size_t j = 0; j < dtypes.size(); ++fnode_arg_index) {
       if (fnode_arg_index >= fnode.input_size()) {
+        // Should never happen if we computed dtypes correctly.
         return errors::InvalidArgument("Attempt to access beyond input size: ",
                                        fnode_arg_index, " >= ",
                                        fnode.input_size());
       }
-      const NameInfoItem* item =
-          gtl::FindOrNull(name_info, fnode.input(fnode_arg_index));
+      // Look up the next input.
+      const string& input_name = fnode.input(fnode_arg_index);
+      const NameInfoItem* item = gtl::FindOrNull(name_info, input_name);
       if (item == nullptr) {
-        return errors::InvalidArgument("input[", i, "] == '",
-                                       fnode.input(fnode_arg_index),
-                                       "' is not found");
+        return errors::InvalidArgument("input ", input_name, " is not found: ",
+                                       SummarizeNodeDef(fnode));
       }
-      if (dtypes != item->dtypes) {
-        return errors::InvalidArgument("Invalid type of input(", i,
-                                       ") for function node: ",
-                                       DataTypeSliceString(dtypes), " vs. ",
-                                       DataTypeSliceString(item->dtypes), ".");
+      if (item->dtypes.size() > dtypes.size() - j) {
+        return errors::InvalidArgument("Input ", input_name, " too long for ",
+                                       fnode_sig->input_arg(i).name());
       }
-      for (size_t j = 0; j < dtypes.size(); ++j) {
-        if (item->is_func_arg) {
-          gnode->add_input(Name(item->nid + j));
-        } else {
-          gnode->add_input(Name(item->nid, item->idx + j));
-        }
-      }
-      ++fnode_arg_index;
-    } else {
-      for (size_t j = 0; j < dtypes.size(); ++j) {
-        if (fnode_arg_index + j >= fnode.input_size()) {
+      // Match up all the elements of this input (indexed by k) with
+      // elements of dtypes (advancing j).
+      for (int k = 0; k < item->dtypes.size(); ++k, ++j) {
+        if (item->dtypes[k] != dtypes[j]) {
           return errors::InvalidArgument(
-              "Attempt to access beyond input size: ", fnode_arg_index + j,
-              " >= ", fnode.input_size());
-        }
-        const NameInfoItem* item =
-            gtl::FindOrNull(name_info, fnode.input(fnode_arg_index + j));
-        if (item == nullptr) {
-          return errors::InvalidArgument("input[", i + j, "] is not found: ",
-                                         SummarizeNodeDef(fnode));
-        }
-        if (item->dtypes.size() != 1 || (item->dtypes[0] != dtypes[j])) {
-          return errors::InvalidArgument(
-              "Invalid typelist input(", i + j, ") for function arg: ", " ",
-              DataTypeSliceString(dtypes), " vs. ",
-              DataTypeSliceString(item->dtypes), ".");
+              "input ", fnode_sig->input_arg(i).name(), "[", j,
+              "] expected type ", DataTypeString(dtypes[j]), " != ",
+              DataTypeString(item->dtypes[k]), ", the type of ", input_name,
+              "[", k, "]");
         }
         if (item->is_func_arg) {
-          gnode->add_input(Name(item->nid));
+          gnode->add_input(Name(item->nid + k));
         } else {
-          gnode->add_input(Name(item->nid, item->idx));
+          gnode->add_input(Name(item->nid, item->idx + k));
         }
       }
-      fnode_arg_index += dtypes.size();
     }
   }
+
   // Control deps.
   for (int i = fnode_arg_index; i < fnode.input_size(); ++i) {
     const string& input = fnode.input(i);
@@ -441,20 +423,27 @@ Status InstantiateNode(const NodeDef& fnode,
       return errors::InvalidArgument("Expected input[", i, "] == '", input,
                                      "' to be a control input.");
     }
-    const NameInfoItem* item = gtl::FindOrNull(name_info, input.substr(1));
-    if (item == nullptr) {
+    int nid = -1;
+    const string node_name = input.substr(1);
+    const string node_colon = node_name + ":";
+    for (const auto& p : name_info) {
+      if (p.first == node_name ||
+          tensorflow::StringPiece(p.first).starts_with(node_colon)) {
+        nid = p.second.nid;
+        break;
+      }
+    }
+    if (nid == -1) {
       return errors::InvalidArgument("input[", i, "] == '", input,
                                      "', is not found.");
     }
-    gnode->add_input(Dep(item->nid));
+    gnode->add_input(Dep(nid));
   }
 
   // Attrs.
   for (const auto& p : attrs) {
     (*gnode->mutable_attr())[p.first] = p.second;
   }
-
-  AddDefaultsToNodeDef(*fnode_sig, gnode);
 
   return Status::OK();
 }
@@ -661,7 +650,7 @@ string Print(const FunctionDef& fdef) {
     strings::StrAppend(&out, Print(sig.output_arg(i)));
   }
   strings::StrAppend(&out, ") {\n");
-  if (fdef.node_def_size() > 0) {
+  if (fdef.node_def_size() > 0 || fdef.ret_size() > 0) {
     for (const auto& n : fdef.node_def()) {
       strings::StrAppend(&out, "  ", Print(n), "\n");
     }
@@ -731,17 +720,44 @@ string Print(const GraphDef& gdef) {
   return out;
 }
 
+Status AddDefaultAttrs(const string& op, GetFunctionSignature get_function,
+                       InstantiateAttrValueMap* attrs) {
+  const OpDef* op_def = nullptr;
+  TF_RETURN_IF_ERROR(get_function(op, &op_def));
+  AttrSlice attr_slice(attrs);
+  for (const auto& attr_def : op_def->attr()) {
+    if (attr_def.has_default_value() && !attr_slice.Find(attr_def.name())) {
+      if (!attrs->insert({attr_def.name(), attr_def.default_value()}).second) {
+        return errors::Internal("Somehow duplicated: ", attr_def.name());
+      }
+    }
+  }
+  return Status::OK();
+}
+
 }  // end namespace
 
 Status InstantiateFunction(const FunctionDef& fdef,
                            const InstantiateAttrValueMap& attr_values,
                            GetFunctionSignature get_function,
                            InstantiationResult* result) {
+  VLOG(3) << "Instantiation Function: " << Print(fdef);
+
   const OpDef& sig = fdef.signature();
   GraphDef* gdef = &result->gdef;
   gdef->Clear();
 
   TF_RETURN_IF_ERROR(ValidateSignatureWithAttrs(sig, attr_values));
+
+  NameInfoIndex name_info;
+  Status s;
+  for (const OpDef::ArgDef& arg_def : sig.input_arg()) {
+    s = BuildInputArgIndex(arg_def, attr_values, &name_info, result);
+    if (!s.ok()) {
+      errors::AppendToMessage(&s, "In ", Print(arg_def));
+      return s;
+    }
+  }
 
   auto substitute = [&attr_values](const string& name, AttrValue* val) {
     auto iter = attr_values.find(name);
@@ -756,7 +772,7 @@ Status InstantiateFunction(const FunctionDef& fdef,
   // Makes a copy of all attrs in fdef and substitutes placeholders.
   // After this step, every attr is bound to a concrete value.
   std::vector<InstantiateAttrValueMap> node_attrs;
-  if (fdef.node_def_size() > 0) {
+  if (fdef.node_def_size() > 0 || fdef.ret_size() > 0) {
     node_attrs.resize(fdef.node_def_size());
     for (int i = 0; i < fdef.node_def_size(); ++i) {
       for (auto attr : fdef.node_def(i).attr()) {
@@ -764,32 +780,14 @@ Status InstantiateFunction(const FunctionDef& fdef,
           return errors::InvalidArgument("Failed to bind all placeholders in ",
                                          SummarizeAttrValue(attr.second));
         }
-        CHECK(node_attrs[i].insert(attr).second);
-      }
-    }
-  } else {  // TODO(josh11b): Eventually remove this case.
-    node_attrs.resize(fdef.node_size());
-    for (int i = 0; i < fdef.node_size(); ++i) {
-      for (auto attr : fdef.node(i).attr()) {
-        if (!SubstitutePlaceholders(substitute, &attr.second)) {
-          return errors::InvalidArgument("Failed to bind all placeholders in ",
-                                         SummarizeAttrValue(attr.second));
+        if (!node_attrs[i].insert(attr).second) {
+          return errors::Internal("Somehow duplicated: ", attr.first);
         }
-        CHECK(node_attrs[i].insert(attr).second);
       }
+      TF_RETURN_IF_ERROR(
+          AddDefaultAttrs(fdef.node_def(i).op(), get_function, &node_attrs[i]));
     }
-  }
 
-  NameInfoIndex name_info;
-  Status s;
-  for (const OpDef::ArgDef& arg_def : sig.input_arg()) {
-    s = BuildInputArgIndex(arg_def, attr_values, &name_info, result);
-    if (!s.ok()) {
-      errors::AppendToMessage(&s, "In ", Print(arg_def));
-      return s;
-    }
-  }
-  if (fdef.node_def_size() > 0) {
     for (int i = 0; i < fdef.node_def_size(); ++i) {
       s = BuildNodeOutputIndex(fdef.node_def(i), node_attrs[i], get_function,
                                gdef->node_size() + i, &name_info);
@@ -819,6 +817,21 @@ Status InstantiateFunction(const FunctionDef& fdef,
       }
     }
   } else {  // TODO(josh11b): Eventually remove this case.
+    node_attrs.resize(fdef.node_size());
+    for (int i = 0; i < fdef.node_size(); ++i) {
+      for (auto attr : fdef.node(i).attr()) {
+        if (!SubstitutePlaceholders(substitute, &attr.second)) {
+          return errors::InvalidArgument("Failed to bind all placeholders in ",
+                                         SummarizeAttrValue(attr.second));
+        }
+        if (!node_attrs[i].insert(attr).second) {
+          return errors::Internal("Somehow duplicated: ", attr.first);
+        }
+      }
+      TF_RETURN_IF_ERROR(
+          AddDefaultAttrs(fdef.node(i).op(), get_function, &node_attrs[i]));
+    }
+
     for (int i = 0; i < fdef.node_size(); ++i) {
       s = BuildNodeOutputIndex(fdef.node(i), node_attrs[i], get_function,
                                gdef->node_size() + i, &name_info);
@@ -859,11 +872,11 @@ string DebugString(const GraphDef& instantiated_func_def) {
 
 string DebugStringWhole(const GraphDef& gdef) {
   string ret;
-  for (auto fdef : gdef.library().function()) {
+  for (const auto& fdef : gdef.library().function()) {
     strings::StrAppend(&ret, Print(fdef));
   }
   strings::StrAppend(&ret, "\n");
-  for (auto ndef : gdef.node()) {
+  for (const auto& ndef : gdef.node()) {
     strings::StrAppend(&ret, Print(ndef), "\n");
   }
   return ret;
@@ -1010,6 +1023,32 @@ Status FunctionLibraryDefinition::LookUp(
   return default_registry_->LookUp(op, op_reg_data);
 }
 
+const FunctionDef* FunctionLibraryDefinition::GetAttrImpl(
+    const NodeDef& ndef) const {
+  if (ndef.op() != kGradientOp) {
+    // If 'ndef' calls a function and the function's def has the attr,
+    // returns it.
+    return Find(ndef.op());
+  }
+
+  // If ndef is SymbolicGradient[f=Foo], we use Foo's gradient or
+  // Foo's attributes.
+  const NameAttrList* forward_func_attrs;
+  if (!GetNodeAttr(AttrSlice(&ndef.attr()), kFuncAttr, &forward_func_attrs)
+           .ok()) {
+    return nullptr;
+  }
+  const string& func_name = forward_func_attrs->name();
+  const string& grad_name = FindGradient(func_name);
+  // If 'func' has a user-defined gradient function, uses the grad
+  // function's attrs to see if noinline is specified. Otherwise,
+  // uses func's attrs.
+  if (!grad_name.empty()) {
+    return Find(grad_name);
+  }
+  return Find(func_name);
+}
+
 FunctionDefLibrary FunctionLibraryDefinition::ToProto() const {
   FunctionDefLibrary lib;
   for (const auto& f : function_defs_) {
@@ -1071,35 +1110,17 @@ FunctionDefHelper::AttrValueWrapper FunctionDefHelper::FunctionRef(
   return ret;
 }
 
-FunctionDef::Node FunctionDefHelper::Node::ToProto() const {
-  FunctionDef::Node n;
-  for (const string& r : this->ret) {
-    n.add_ret(r);
-  }
-  n.set_op(this->op);
-  for (const string& a : arg) {
-    n.add_arg(a);
-  }
-  for (const auto& a : this->attr) {
-    n.mutable_attr()->insert({a.first, a.second.proto});
-  }
-  for (const string& d : dep) {
-    n.add_dep(d);
-  }
-  return n;
-}
-
 NodeDef FunctionDefHelper::Node::ToNodeDef() const {
   NodeDef n;
   n.set_op(this->op);
   n.set_name(this->ret[0]);
-  for (const string& a : arg) {
-    n.add_input(a);
-  }
   for (const auto& a : this->attr) {
     n.mutable_attr()->insert({a.first, a.second.proto});
   }
-  for (const string& d : dep) {
+  for (const string& a : this->arg) {
+    n.add_input(a);
+  }
+  for (const string& d : this->dep) {
     n.add_input(strings::StrCat("^", d));
   }
   return n;
@@ -1150,8 +1171,56 @@ FunctionDef FunctionDefHelper::Define(const string& name,
   OpRegistrationData op_reg_data;
   TF_CHECK_OK(b.Finalize(&op_reg_data));
   fdef.mutable_signature()->Swap(&op_reg_data.op_def);
-  for (const auto& n : node_def) {
-    *(fdef.add_node()) = n.ToProto();
+
+  // Mapping from legacy output names to NodeDef outputs.
+  std::unordered_map<string, string> ret_index;
+  for (const auto& a : fdef.signature().input_arg()) {
+    ret_index[a.name()] = a.name();
+  }
+
+  // For looking up OpDefs
+  auto* op_def_registry = OpRegistry::Global();
+
+  // Function body
+  for (const auto& src : node_def) {
+    NodeDef* n = fdef.add_node_def();
+    n->set_op(src.op);
+    n->set_name(src.ret[0]);
+    for (const auto& a : src.attr) {
+      n->mutable_attr()->insert({a.first, a.second.proto});
+    }
+    for (const string& a : src.arg) {
+      const auto iter = ret_index.find(a);
+      CHECK(iter != ret_index.end()) << "Node input '" << a << "' in '"
+                                     << src.ret[0] << "' of " << name;
+      n->add_input(iter->second);
+    }
+    for (const string& d : src.dep) {
+      n->add_input(strings::StrCat("^", d));
+    }
+
+    // Add the outputs of this node to ret_index.
+    const OpDef* op_def = nullptr;
+    TF_CHECK_OK(op_def_registry->LookUpOpDef(n->op(), &op_def)) << n->op();
+    CHECK(op_def != nullptr) << n->op();
+    NameRangeMap output_names;
+    TF_CHECK_OK(NameRangesForNode(*n, *op_def, nullptr, &output_names));
+    for (const auto& o : output_names) {
+      CHECK_LE(o.second.second, src.ret.size())
+          << "Missing ret for output '" << o.first << "' in '" << src.ret[0]
+          << "' of " << name;
+      for (int i = o.second.first; i < o.second.second; ++i) {
+        ret_index[src.ret[i]] =
+            strings::StrCat(src.ret[0], ":", o.first, ":", i - o.second.first);
+      }
+    }
+  }
+
+  // Returns
+  for (const auto& r : fdef.signature().output_arg()) {
+    const auto iter = ret_index.find(r.name());
+    CHECK(iter != ret_index.end()) << "Return '" << r.name() << "' in " << name;
+    fdef.mutable_ret()->insert({r.name(), iter->second});
   }
   return fdef;
 }
