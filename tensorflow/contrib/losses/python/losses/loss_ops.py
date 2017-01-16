@@ -21,6 +21,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import tensorflow as tf
+
 from tensorflow.contrib.framework.python.ops import add_arg_scope
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
@@ -148,7 +150,7 @@ def compute_weighted_loss(losses, weights=1.0, scope=None):
     mean_loss = _safe_mean(total_loss, num_present)
     # convert the result back to the input type
     mean_loss = math_ops.cast(mean_loss, input_dtype)
-    add_loss(mean_loss)
+    tf.losses.add_loss(mean_loss)
     return mean_loss
 
 
@@ -296,7 +298,7 @@ def absolute_difference(predictions, labels=None, weights=1.0, scope=None):
     predictions = math_ops.to_float(predictions)
     labels = math_ops.to_float(labels)
     losses = math_ops.abs(math_ops.subtract(predictions, labels))
-    return compute_weighted_loss(losses, weights, scope=scope)
+    return tf.losses.compute_weighted_loss(losses, weights, scope=scope)
 
 
 @deprecated("2016-12-30", "Use tf.losses.sigmoid_cross_entropy instead.")
@@ -343,7 +345,7 @@ def sigmoid_cross_entropy(
     losses = nn.sigmoid_cross_entropy_with_logits(labels=multi_class_labels,
                                                   logits=logits,
                                                   name="xentropy")
-    return compute_weighted_loss(losses, weights, scope=scope)
+    return tf.losses.compute_weighted_loss(losses, weights, scope=scope)
 
 
 @deprecated("2016-12-30", "Use tf.losses.softmax_cross_entropy instead.")
@@ -391,7 +393,7 @@ def softmax_cross_entropy(
     losses = nn.softmax_cross_entropy_with_logits(labels=onehot_labels,
                                                   logits=logits,
                                                   name="xentropy")
-    return compute_weighted_loss(losses, weights, scope=scope)
+    return tf.losses.compute_weighted_loss(losses, weights, scope=scope)
 
 
 @deprecated("2016-12-30", "Use tf.losses.sparse_softmax_cross_entropy instead.")
@@ -426,7 +428,7 @@ def sparse_softmax_cross_entropy(logits, labels, weights=1.0, scope=None):
     losses = nn.sparse_softmax_cross_entropy_with_logits(labels=labels,
                                                          logits=logits,
                                                          name="xentropy")
-    return compute_weighted_loss(losses, weights, scope=scope)
+    return tf.losses.compute_weighted_loss(losses, weights, scope=scope)
 
 
 @deprecated("2016-12-30", "Use tf.losses.log_loss instead.")
@@ -465,7 +467,7 @@ def log_loss(predictions, labels=None, weights=1.0, epsilon=1e-7, scope=None):
         labels,
         math_ops.log(predictions + epsilon)) - math_ops.multiply(
             (1 - labels), math_ops.log(1 - predictions + epsilon))
-    return compute_weighted_loss(losses, weights, scope=scope)
+    return tf.losses.compute_weighted_loss(losses, weights, scope=scope)
 
 
 @deprecated("2016-12-30", "Use tf.losses.hinge_loss instead.")
@@ -527,7 +529,7 @@ def mean_squared_error(predictions, labels=None, weights=1.0, scope=None):
     predictions = math_ops.to_float(predictions)
     labels = math_ops.to_float(labels)
     losses = math_ops.square(math_ops.subtract(predictions, labels))
-    return compute_weighted_loss(losses, weights, scope=scope)
+    return tf.losses.compute_weighted_loss(losses, weights, scope=scope)
 
 
 @deprecated("2016-12-30", "Use tf.losses.mean_pairwise_squared_error instead.")
@@ -606,7 +608,7 @@ def mean_pairwise_squared_error(
                                 loss,
                                 array_ops.zeros_like(loss),
                                 name="value")
-    add_loss(mean_loss)
+    tf.losses.add_loss(mean_loss)
     return mean_loss
 
 
@@ -644,4 +646,4 @@ def cosine_distance(
 
     radial_diffs = math_ops.multiply(predictions, labels)
     losses = 1 - math_ops.reduce_sum(radial_diffs, reduction_indices=[dim,])
-    return compute_weighted_loss(losses, weights, scope=scope)
+    return tf.losses.compute_weighted_loss(losses, weights, scope=scope)
