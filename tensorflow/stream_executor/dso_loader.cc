@@ -39,6 +39,7 @@ namespace internal {
 
 string GetCudaVersion() { return TF_CUDA_VERSION; }
 string GetCudnnVersion() { return TF_CUDNN_VERSION; }
+string GetTensorFlowPath() { return TENSORFLOW_PATH; }
 
 /* static */ port::Status DsoLoader::GetCublasDsoHandle(void** dso_handle) {
   return GetDsoHandle(FindDsoPath(port::Env::Default()->FormatLibraryFileName(
@@ -127,8 +128,9 @@ static mutex& GetRpathMutex() {
 }
 
 /* static */ string DsoLoader::GetBinaryDirectory(bool strip_executable_name) {
-  string exe_path = port::Env::Default()->GetExecutablePath();
-  return strip_executable_name ? port::Dirname(exe_path).ToString() : exe_path;
+  return GetTensorFlowPath();
+  //string exe_path = port::Env::Default()->GetExecutablePath();
+  //return strip_executable_name ? port::Dirname(exe_path).ToString() : exe_path;
 }
 
 // Creates a heap-allocated vector for initial rpaths.
@@ -177,7 +179,9 @@ static std::vector<string>* CreatePrimordialRpaths() {
   string binary_directory =
       GetBinaryDirectory(true /* = strip_executable_name */);
   mutex_lock lock{GetRpathMutex()};
+  GetRpaths()->push_back(runfiles_relpath.ToString());
   for (const string& rpath : *GetRpaths()) {
+    LOG(INFO) << rpath;
     candidate =
         port::Join(StringPieces{binary_directory, rpath, library_name}, "/");
     if (TrySymbolicDereference(&candidate)) {
@@ -190,11 +194,11 @@ static std::vector<string>* CreatePrimordialRpaths() {
 }
 
 /* static */ string DsoLoader::GetCudaLibraryDirPath() {
-#if defined(__APPLE__)
+//#if defined(__APPLE__)
   return "external/local_config_cuda/cuda/lib";
-#else
-  return "external/local_config_cuda/cuda/lib64";
-#endif
+//#else
+//  return "external/local_config_cuda/cuda/lib64";
+//#endif
 }
 
 /* static */ string DsoLoader::GetCudaDriverLibraryPath() {
