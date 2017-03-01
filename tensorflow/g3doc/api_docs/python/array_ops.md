@@ -2044,7 +2044,7 @@ The attr `block_size` indicates the input block size and how the data is moved.
 
   * Chunks of data of size `block_size * block_size` from depth are rearranged
     into non-overlapping blocks of size `block_size x block_size`
-  * The width the output tensor is `input_width * block_size`, whereas the
+  * The width the output tensor is `input_depth * block_size`, whereas the
     height is `input_height * block_size`.
   * The depth of the input tensor must be divisible by
     `block_size * block_size`.
@@ -3129,14 +3129,5 @@ Compute gradients for a FakeQuantWithMinMaxVarsPerChannel operation.
     `sum_per_d(gradients * (inputs < min))`.
 *  <b>`backprop_wrt_max`</b>: A `Tensor` of type `float32`. Backpropagated gradients w.r.t. max parameter, shape `[d]`:
     `sum_per_d(gradients * (inputs > max))`.
-
-
-
-## Other Functions and Classes
-- - -
-
-### `tf.concat_v2(values, axis, name='concat_v2')` {#concat_v2}
-
-
 
 

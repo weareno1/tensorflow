@@ -79,10 +79,20 @@ string GetTensorFlowPath() { return TENSORFLOW_PATH; }
                   GetCudaDriverLibraryPath()),
       dso_handle);
 #else
-  return GetDsoHandle(
+  port::Status status = GetDsoHandle(
       FindDsoPath(port::Env::Default()->FormatLibraryFileName("cuda", "1"),
                   GetCudaDriverLibraryPath()),
       dso_handle);
+#if defined(__APPLE__)
+  // On Mac OS X, CUDA sometimes installs libcuda.dylib instead of
+  // libcuda.1.dylib.
+  return status.ok() ? status : GetDsoHandle(
+     FindDsoPath(port::Env::Default()->FormatLibraryFileName("cuda", ""),
+                 GetCudaDriverLibraryPath()),
+     dso_handle);
+#else
+  return status;
+#endif
 #endif
 }
 

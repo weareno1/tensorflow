@@ -407,14 +407,15 @@ class BaseEstimator(
       raise ValueError('Can not provide both steps and max_steps.')
     _verify_input_args(x, y, input_fn, None, batch_size)
     if x is not None:
-      return SKCompat(self).fit(x, y, batch_size, steps, max_steps, monitors)
+      SKCompat(self).fit(x, y, batch_size, steps, max_steps, monitors)
+      return self
 
     if max_steps is not None:
       try:
         start_step = load_variable(self._model_dir, ops.GraphKeys.GLOBAL_STEP)
         if max_steps <= start_step:
           logging.info('Skipping training since max_steps has already saved.')
-          return None
+          return self
       except:  # pylint: disable=bare-except
         pass
 
@@ -977,7 +978,7 @@ class BaseEstimator(
           chief_only_hooks=chief_hooks + model_fn_ops.training_chief_hooks,
           save_checkpoint_secs=0,  # Saving is handled by a hook.
           save_summaries_steps=self._config.save_summary_steps,
-          config=None) as mon_sess:
+          config=self.config.tf_config) as mon_sess:
         loss = None
         while not mon_sess.should_stop():
           _, loss = mon_sess.run([model_fn_ops.train_op, model_fn_ops.loss])
@@ -1282,7 +1283,7 @@ class Estimator(BaseEstimator):
 
       with tf_session.Session('') as session:
         variables.initialize_local_variables()
-        data_flow_ops.initialize_all_tables()
+        data_flow_ops.tables_initializer()
         saver_for_restore = saver.Saver(
             variables.global_variables(),
             sharded=True)
@@ -1290,7 +1291,7 @@ class Estimator(BaseEstimator):
 
         init_op = control_flow_ops.group(
             variables.local_variables_initializer(),
-            data_flow_ops.initialize_all_tables())
+            data_flow_ops.tables_initializer())
 
         # Perform the export
         builder = saved_model_builder.SavedModelBuilder(export_dir)
