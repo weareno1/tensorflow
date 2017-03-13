@@ -12,6 +12,8 @@ CUDA_TOOLKIT_PATH=/usr/local/cuda-8.0
 TF_CUDNN_VERSION=5
 CUDNN_INSTALL_PATH=/usr/local/cudnn-v5
 TF_CUDA_COMPUTE_CAPABILITIES=6.1
+CC_OPT_FLAGS="-march=native"
+TF_NEED_JEMALLOC=1
 
 set -e
 set -o pipefail
